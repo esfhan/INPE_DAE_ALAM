@@ -41,6 +41,7 @@
    
 from pylab import *
 from numpy import *
+from pyiri2016 import *
 from nrlmsise_2000 import *
 from scipy import *
 from scipy.ndimage import *
@@ -52,9 +53,14 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 matplotlib.rc("mathtext",fontset="cm")        #computer modern font 
 matplotlib.rc("font",family="serif",size=12)
 
+def d1_3(n2,n3,data):
+    return repeat(repeat(data[:,newaxis],n2,axis=1)[:,:,newaxis],n3,axis=2)
 
 def d1_2(n,data):
     return repeat(data[newaxis,:],n,axis=0)
+
+def d1_23(n,data):
+    return repeat(data[newaxis,:,:],n,axis=0)
 
 def mask_b():
     mask=1+zeros((nx,ny))
@@ -135,28 +141,28 @@ def ambiente_atmos(iw,x2,y2):
     global rho_amb,tn_amb,r_g,nu_nn,lambda_c
     global pn, sn
     if iw==0:
-        lat_ep=35.7;lon_ep=-117.6
-        year,month,dom=2019,7,4
+        lat_ep=38;lon_ep=143
+        year,month,dom=2011,3,9
                 
         d0 = datetime.date(year,1,1)
         d1 = datetime.date(year, month, dom)
         delta = d1 - d0
         doy=delta.days 
-        ut=17.55;lt=ut+lon_ep/15.
+        ut=3;lt=ut+lon_ep/15.
         
-        f107A,f107,ap=150,150,4
+        f107A,f107,ap=150,150,4 #300,300,400
         
         f=nrl_msis(doy,ut*3600.,lt,f107A,f107,ap,lat_ep,lon_ep,dy,y[0],ny)
-        tn_msis=f[1];
+        tn_msis=f[1];#tn_msis=0*tn_msis+tn_msis.mean()
         den_ox=f[2]*1.e+06;den_n=f[3]*1.e+06;den_o2=f[4]*1.e+06;den_n2=f[5]*1.e+06;
         n_msis=den_ox+den_n+den_o2+den_n2;
         rho_msis=f[6]*1.e+03
         mean_mass=rho_msis/n_msis
         
         b_c=1.38e-23; 
-        rg_msis=b_c/mean_mass
-        pn_msis=rg_msis*rho_msis*tn_msis
-        sn_msis=sqrt(1.4*pn_msis/rho_msis)
+        rg_msis=b_c/mean_mass;
+        pn_msis=rg_msis*rho_msis*tn_msis;
+        sn_msis=sqrt(1.33*pn_msis/rho_msis)
         
         nu_msis=pi*(7*5.6e-11)**2.*sn_msis*n_msis    
         visc_mu_1=3.563e-07*tn_msis**(0.71);
@@ -200,7 +206,7 @@ def ambiente_atmos(iw,x2,y2):
         mean_mass=b_c/r_g                                                           #massa atmosferica
         nn=rho_amb/mean_mass                                                          #Densidade numerica
         pn=r_g*rho_amb*tn_amb                                                           #Pressão atmosferica
-        sn=sqrt(1.4*pn/rho_amb)                                                       #velocidade de som
+        sn=sqrt(1.33*pn/rho_amb)                                                       #velocidade de som
         
         nu_nn=pi*(7*5.6e-11)**2.*sn*nn                                              #frequencia da colisão
         lambda_c=sn**2./nu_nn                                                       #Conductividade termica
@@ -360,21 +366,43 @@ def AGW():
     return (wx,wy,rho,tn,pn)
 
 #%%
-def rho_tn(rho_o,tn_o):
+def rho_tn(rho_o,tn_o,pn_o):
+    div_w=0*div_f(wx_ana,wy_ana)
     div_flux=div_f(rho_o*wx_ana,rho_o*wy_ana)
-    rho=rho_o-0.0*dt*div_flux
+    div_flux_x=wx_ana*gradient(rho_o)[0]/gradient(x2_m)[0]
+    div_flux_y=wy_ana*gradient(rho_o)[1]/gradient(y2_m)[1]
+    div_flux=div_flux_x+div_flux_y
+    rho=rho_o-0.1*dt*div_flux
     
-    div_flux=div_f(tn_o*wx_ana,tn_o*wy_ana)        
-    div_w=div_f(wx_ana,wy_ana)
+    div_flux=div_f(tn_o*wx_ana,tn_o*wy_ana)
+    div_flux_x=wx_ana*gradient(tn_o)[0]/gradient(x2_m)[0]
+    div_flux_y=wy_ana*gradient(tn_o)[1]/gradient(y2_m)[1]
+    div_flux=div_flux_x+div_flux_y        
     
-    tn=tn_o-0.*dt*(div_flux+(1.-1.)*tn_o*div_w)
+    gma=1.33#rho_ho/rho
+    tn=tn_o-0.1*dt*(div_flux+(gma-1.)*tn_o*div_w)
     
-    return (rho,tn)
+    div_flux=div_f(pn_o*wx_ana,pn_o*wy_ana)        
+    div_flux_x=wx_ana*gradient(pn_o)[0]/gradient(x2_m)[0]
+    div_flux_y=wy_ana*gradient(pn_o)[1]/gradient(y2_m)[1]
+    div_flux=div_flux_x+div_flux_y
+    
+    pn=pn_o-0.1*dt*(div_flux+(gma-1.)*pn_o*div_w)/1.
+    
+#    div_flux=1.e-03*wy_ana*gradient(tn_o)[1]/gradient(y2)[1]
+    rho_t=rho_to#+dt*(rho_ho+rho_to)*div_flux/tn_o
+#
+#    div_flux=div_f(rho_ho*wx_ana,rho_ho*wy_ana)
+    rho_h=rho_ho#-0.*dt*div_flux
+#    
+    return (rho,tn,pn)
 
 #%%ANALTICA
 def AGW_ana():
-    gma=1.4
-    pn=r_g*rho_o*tn_o;c_s=sqrt(gma*pn/rho_o); 
+    i_xo=abs(x-x.mean()).argmin()
+    gma=1.33#0.33+rho_ho/rho_o#1.4#0.01+rho_ho/(rho_ho+rho_to)
+    pn=pn_o#r_g*rho_o*tn_o;
+    c_s=sqrt(gma*pn/rho_o);#c_s=0*c_s+c_s.mean() 
     gr_pn=gradient(pn)[1];dy_m2=2.*dy_m
     zeta=(1./rho_o)*gr_pn/dy_m2
     k0=zeta/c_s**2.
@@ -383,51 +411,153 @@ def AGW_ana():
 #    mu=0.5*(k0)*y2_m#(k0)*y2*1.e+03#(k0_proximo+k0_antes)*dy_m#0.1*(k0-k0[0,0])*y2*1.e+03#trapz(k0,x=y2,dx=dy_m,axis=1)
     mu=0.5*(k0_proximo+k0_antes)*dy_m2/2.
     mu=cumsum(mu,1);mu=9.*mu/abs(mu).max()
-    i_mx=abs(abs(mu[0,:])-abs(mu).max()).argmin()
-    mu[:,i_mx:]=0*mu[:,i_mx:]+mu[0,i_mx]
+#    i_mx=abs(abs(mu[0,:])-abs(mu).max()).argmin()
+#    mu[:,i_mx:]=0*mu[:,i_mx:]+mu[0,i_mx]
     omega_c2=(gma**2.*k0*c_s)**2./4.
-    omega_b2=((gma-1)*k0**2-0*(k0/c_s**2.)*gradient(c_s**2.)[1]/dy_m2)*c_s**2.
+    omega_b2=((gma-1)*k0**2-1.*(k0/c_s**2.)*gradient(c_s**2.)[1]/dy_m2)*c_s**2.
+    i_pos=argwhere(omega_b2[i_xo,:]>=0);i_neg=argwhere(omega_b2[i_xo,:]<0)
+    ob2_real=0*omega_b2;ob2_im=0*omega_b2
+    ob2_real[:,i_pos]=omega_b2[:,i_pos]   
+    ob2_im[:,i_neg]=omega_b2[:,i_neg]   
+#    omega_b2=sqrt(ob2_real**2.+ob2_im**2.)
+    # omega_b2=0*omega_b2+omega_b2.mean()
     omega_h2=wk_x**2.*c_s**2.
-    omega_2=omega_b2+(wk_y**2.+k0**2.)*c_s**2.+omega_h2
+    omega_2=omega_b2+(wk_y**2.+0*k0**2./4.)*c_s**2.+omega_h2
     omega_mais=sqrt(omega_2+sqrt(omega_2**2.-4.*omega_h2*omega_b2))/sqrt(2)
     omega_menos=sqrt(omega_2-sqrt(omega_2**2.-4.*omega_h2*omega_b2))/sqrt(2)
 #    omega_mais=sqrt(omega_2)
-#    omega_menos=sqrt(omega_h2*omega_b2/omega_2)
+#    omega_menos=sqrt(omega_h2/omega_2)*sqrt(ob2_real**2.+ob2_im**2.)
 #    if omega_menos.any()==0.:
 #        omega_menos=omega_mais
     visc_mu=1.3*pn_amb/nu_nn;visc_ki=visc_mu/rho_amb
     nu_col=visc_ki*(-wk_x**2-wk_y**2.+k0**2.-gradient(k0)[1]/dy_m2)
     wx_mais=(omega_mais**2.+omega_h2-omega_2)/(wk_x*wk_y*c_s**2.)
     wx_menos=(omega_menos**2.+omega_h2-omega_2)/(wk_x*wk_y*c_s**2.)
-    return (mu,omega_mais,omega_menos,nu_col,wx_mais,wx_menos,omega_b2,omega_c2)
+    
+    gamma_ad=(gma-1)*k0**2.
+    gamma_e=(k0/c_s**2.)*gradient(c_s**2.)[1]/dy_m2
+    return (mu,omega_mais,omega_menos,nu_col,wx_mais,wx_menos,omega_b2,\
+            omega_c2,ob2_im,gamma_ad,gamma_e,c_s)
 
 #%%ANALTICA
 def AGW_ana_x():
-    gma=1.4
-    pn=r_g*rho_o*tn_o*(1-0.2*cos(wk_x*x2_m));c_s=sqrt(gma*pn/rho_o);  
+    gma=1.33#0.33+rho_ho/rho_o#1.4#0.01+rho_ho/(rho_ho+rho_to)
+    pn=pn_o#r_g*rho_o*tn_o;
+    c_s=sqrt(gma*pn/rho_o); 
     gr_pn=gradient(pn)[0];dx_m2=2.*dx_m
     zeta=(1./rho_o)*gr_pn/dx_m2
     k0=zeta/c_s**2.
     omega_c2=(gma**2.*k0*c_s)**2./4.
-    omega_b2=((gma-1)*k0**2-0*(k0/c_s**2.)*gradient(c_s**2.)[0]/dx_m2)*c_s**2.
-    omega_h2=wk_x**2.*c_s**2.
-    omega_2=omega_b2+(wk_y**2.+k0**2.)*c_s**2.+omega_h2#+omega_c2
+    omega_b2=((gma-1)*k0**2-0.*(k0/c_s**2.)*gradient(c_s**2.)[0]/dx_m2)*c_s**2.
+    omega_h2=wk_y**2.*c_s**2.
+    omega_2=omega_b2+(wk_x**2.+k0**2.)*c_s**2.+omega_h2
     omega_mais=sqrt(omega_2+sqrt(omega_2**2.-4.*omega_h2*omega_b2))/sqrt(2)
     omega_menos=sqrt(omega_2-sqrt(omega_2**2.-4.*omega_h2*omega_b2))/sqrt(2)
-    omega_mais=sqrt(omega_2)
-    omega_menos=sqrt(omega_h2*omega_b2/omega_2)
     return (omega_mais,omega_menos)
+#%%
+def amb_iono(iw,x2,y2):
+    global no_y,n_o,nu_in,nu_0,gyro_i,b_o
+    if iw==0:
+        yi=y2[0,8:]
+        altlim=[yi[0],yi[-1]]
+        iri2016=IRI2016Profile(altlim=altlim,altstp=10,lat=38,\
+            lon=143, year=2011, month=3, dom=9, iut=1,hour=3,\
+            option=1, verbose=False) 
+        
+        index = range(len(yi))
+        
+        i_ne,i_no,i_no2,i_nno=0,4,7,8
+        ne_iri = iri2016.a[0, index] # 
+        no_iri= iri2016.a[4, index]*50.e+08# 
+        no2_iri= iri2016.a[7, index]*10.e+08 # 
+        nno_iri= iri2016.a[8, index]*10.e+08 #
+            
+        ti = iri2016.a[2, index]
+        te = iri2016.a[3, index]
+        
+        n_o=d1_2(nx,ne_iri)
+        
+        subplot(111)
+        semilogx(n_o[0,:], yi[:],'gray',lw=2,label='$n_o, m^{-3}$')   
+        ylabel('Altitude, km')
+        title('(B)')# Ionospheric Number Density')
+        legend(fontsize=12,loc='best')
+        
+        sc_h=30.
+        nu_in=1.e+03*exp(-(yi-80.)/sc_h)                                            #A perfile (em altitude) da frequencia 
+                                                                                    #da colisão (nu_in)..
+    #    nu_0=nu_in
+    #    i_500=abs(y-500.).argmin()
+    #    for i in range (i_500,ny):
+    #        nu_0[:,i]=nu_0[:,i_500]
+                                                                            
+        b_o=30.e-06                                                                 #o campo geomagnetico em Tesla
+        q_c=1.6e-19;m_i=1.67e-27;z_i=16.
+        gyro_i=q_c*b_o/(z_i*m_i)                                                    # a freuqnecia de giração da ions
     
+        gyro_e=-gyro_i*1837.
+        
+    #    m_p=1.67e-27;
+    #    pn_msis=b_c*n_msis*tn_msis
+    #    sn_msis=sqrt(1.4*pn_msis/rho_msis)
+    #    mass_msis=rho_msis/n_msis
+    #    
+    #    omg_i=q_charge*mag_o/(mass_msis[n1-n1_i:]);
+    #    omg_e=-omg_i*1837.
+    #    a=mass_msis[n1-n1_i:]/m_p#16.;#a is neutral mass in amu
+    #
+    #    nu_ii=0.22*ne_iri*1.e-06/(ti)**(3./2.);
+    #    nu_in=2.6e-9*1.e-06*(5*n_msis[n1-n1_i:]+ne_iri)*a**(-1./2.)        
+    #    a=2.*sn_msis[n1-n1_i:]*8./(3.*sqrt(pi))
+    #    nu_in=1.e+06*a*rho_msis[n1-n1_i:]
+    #    nu_in=1.*nu_in+0*nu_ii
+    #    
+    #    nu_ei=34*ne_iri*1.e-06/(ti)**(3./2.);
+    #    nu_en=5.4e-16*n_msis[n1-n1_i:]*sqrt(ti)+0*nu_ei
+    #    nu_en=1.*nu_ei+0*nu_en
+    if iw==1:
+        y2=y2[:,8:]
+        np=1.e+12;yp=200.;r=y2/yp
+        a=2;b=-10.
+        n_of=2.*np/(exp(a*(r-1.))+exp(b*(r-1.)))                                    #Perfile (em altitude (y)) 
+        
+        np=1.e+11;a=5.;b=-60.
+        n_oe=2.*np/(exp(a*(r-0.5))+exp(b*(r-0.5)))
+        
+        n_ef=5.e-01*np*(r+0.5)**2./5.
+        n_o=n_of+n_oe+n_ef
+        
+        sc_h=30.
+        nu_in=1.e+03*exp(-(y2-80.)/sc_h)                                            #A perfile (em altitude) da frequencia 
+                                                                                    #da colisão (nu_in)..
+    #    nu_0=nu_in
+    #    i_500=abs(y-500.).argmin()
+    #    for i in range (i_500,ny):
+    #        nu_0[:,i]=nu_0[:,i_500]
+                                                                            
+        b_o=30.e-06                                                                 #o campo geomagnetico em Tesla
+        q_c=1.6e-19;m_i=1.67e-27;z_i=16.
+        gyro_i=q_c*b_o/(z_i*m_i)                                                    # a freuqnecia de giração da ions
+    
+        gyro_e=-gyro_i*1837.
+        
+    return ()   
+
 #%%
 def ambiente_iono(x2,y2):
     
     global no_y,n_o,nu_in,nu_0,gyro_i,b_o
-    y2=y2[:,15:]
-    np=1.e+12;yp=275.;r=y2/yp
-    a=2;b=-5.
-    n_o=2.*np/(exp(a*(r-1.))+exp(b*(r-1.)))                                    #Perfile (em altitude (y)) 
-                                                                                #de densidade eletronica (/m³)
-    #===
+    y2=y2[:,8:]
+    np=1.e+12;yp=200.;r=y2/yp
+    a=2;b=-10.
+    n_of=2.*np/(exp(a*(r-1.))+exp(b*(r-1.)))                                    #Perfile (em altitude (y)) 
+    
+    np=1.e+11;a=5.;b=-60.
+    n_oe=2.*np/(exp(a*(r-0.5))+exp(b*(r-0.5)))
+    
+    n_ef=5.e-01*np*(r+0.5)**2./5.
+    n_o=n_of+n_oe+n_ef
+    
     sc_h=30.
     nu_in=1.e+03*exp(-(y2-80.)/sc_h)                                            #A perfile (em altitude) da frequencia 
                                                                                 #da colisão (nu_in)..
@@ -445,6 +575,7 @@ def ambiente_iono(x2,y2):
     return 
 #==============================================================================
 def den_iono(n_o,vx,vy,vnx,vny):
+    #vy=vy-0
     fx_o=vx*gradient(n_o)[0]/2.        
     fy_o=vy*gradient(n_o)[1]/2.
     
@@ -454,7 +585,7 @@ def den_iono(n_o,vx,vy,vnx,vny):
         fy_g=vy*gradient(n)[1]/2.
         fx=(fx_o+fx_g)/2.                                                       #SEMI IMPLICIT CRANK-NICOLSON TIME INTEGRATION
         fy=(fy_o+fy_g)/2.
-        n=n_o-(fx/vnx+fy/vny)                                                   #EQUAÇÃO NUMERICA DA DENSIDADE
+        n=n_o-0.25*(fx/vnx+fy/vny)                                                   #EQUAÇÃO NUMERICA DA DENSIDADE
 #        n[:,0]=n[:,1];n[:,-1]=n[:,-2];                                          #condições contorno na ALTITUDE 
     return n
 #==============================================================================
@@ -463,52 +594,80 @@ def vel(b_o,nu,gyro,wx,wy):
     # |vx| | mu_p mu_h | |Ex|
     # |  |=|           | |  |
     # |vy| |-mu_h mu_p | |Ey|
-    
     kappa=gyro/nu
     mu_p=kappa/(b_o*(1.+kappa**2.))                                             #PEDERSON MOBILITY
     mu_h=kappa**2./(b_o*(1.+kappa**2.))                                         #HALL MOBILITY
-    lat=radians(35.7)
+    lat=radians(0)
     mag_m=8.e+15         #Tm^3
     r_ea=6.371e+06
-    b1=-2.*mag_m*sin(abs(lat))/r_ea**3.;
-    b3=mag_m*cos(lat)/r_ea**3.;
-    b2=0
+    by=-2.*mag_m*sin(abs(lat))/r_ea**3.;
+    bz=mag_m*cos(lat)/r_ea**3.;
+    bx=0
     wz=0
-    ey=wz*b2-wx*b3
-    ex=wy*b3-wz*b1
-    ez=wx*b1-wy*b2
+    ey=wz*bx-wx*bz
+    ex=wy*bz-wz*by
+    ez=wx*by-wy*bx
 #    ex=wy*b_o*cos(lat);ey=-wx*b_o*cos(lat)
     vx=mu_p*ex+mu_h*ey
     vy=mu_p*ey-mu_h*ex
     return (vx,vy)
 
 #%%============================FONTE SISMICA============================================#
+data_sism= load('DATA_ILLAPEL/Dados_sismico.npy')
+t_s=3600*data_sism[0,280000:-50000:200];#segundos
+vel_s=data_sism[1,280000:-50000:200]#m/s
+t_s=t_s-t_s[0]
+f=wavelet(0,t_s,vel_s,64)
+pd=f[0];pwr=f[1];emd=f[2];amp_sism=f[3][:,1][0]
+fr_sism=1.e+00/(pd)
+
+# for iw in range (1):
+#     idx_peaks=find_peaks(abs(emd[iw,:]))
+#     # idx_peaks[0]=argmax(abs(emd[iw,:]))
+#     n_peaks=len(idx_peaks)
+#     print (n_peaks)
+#     t0=zeros(n_peaks);amp=zeros(n_peaks)
+#     for i_peak in range (n_peaks):
+#         t0[i_peak]=t_s[idx_peaks[i_peak]];
+#         #print (len(idx_peaks),t0)
+#         amp[i_peak]=emd[iw,idx_peaks[i_peak]]
 
 def fonte(v_phase):
-    global sigma_t,t0,sigma_x
-    #t_sism=3600*load('t_sism.npy')[1200:-1:2];
-    #v_sism=1.e-02*load('data_sism.npy')[1200:-1:2]
-    ##v_sism=data_smooth(t_sism,v_sism)
-    #it=0
-    #t=0;t_f=t_sism[71]-t_sism[0]
-    #dt=t_sism[1]-t_sism[0]#
-    sigma_t=36.*dt/2.;omega_o=2.*pi/(0.5*sigma_t)                  
+    global sigma_t,t0,sigma_x,v_s,tn_phase,tn0               
+    vel_ana=0
+    
+    for iw in range (len(pd)):
+        idx_peaks=find_peaks(abs(emd[iw,:]))[:,0]
+        n_peaks=len(idx_peaks)
+        t0=t_s[idx_peaks]
+        amp=emd[iw,idx_peaks]
+        sigma_t=pd[iw]
+        nx=41;ny=41
+        tn0=d1_2(ny,t0)
+        ampn=d1_2(ny,amp)
+        if abs(v_phase).min() !=0:
+            t_phase=y2_m/v_phase
+        else:
+            t_phase=0+0*y2_m
+        t_phase=t_phase.mean(0)
+        tn_phase=transpose(d1_2(n_peaks,t_phase))     
+        f_sism=skew(t-tn_phase,tn0,sigma_t/2.,0)
+        vel_ana=vel_ana+(f_sism*ampn).sum(1)
+        # idx_peaks[0]=argmax(abs(emd[iw,:]))
+        # n_peaks=len(idx_peaks)
+        # for i_peak in range (n_peaks):
+        #     t0=t_s[idx_peaks[i_peak]];
+        #     #print (len(idx_peaks),t0)
+        #     sigma_t=pd[iw]
+        #     f_sism=skew(t-t_phase,t0,sigma_t/2.,0)
+        #     f_sism=f_sism-f_sism[0]
+        #     amp=emd[iw,idx_peaks[i_peak]]
+        #     vel_ana=vel_ana+f_sism*amp#*cos(2*pi*fr_sism[iw]*(t-t_phase))
+    wy0_t=vel_s.max()*vel_ana/emd.max()
+    sigma_x=4.*dx_m*1.e-03;x_o=x2.mean();v_s=0.;x_o=0
+    f_lon=skew(x2,x_o-v_s*t,sigma_x/1.,0)
 
-    t0=5*sigma_t;v0=0.025;ft0=v0*skew(t-y2_m/v_phase,t0,sigma_t,1)
-    t1=4350-t0;v1=0.0004;ft1=v1*skew(t-y2_m/v_phase,t0+t1,sigma_t/1.,2)
-    t2=5046-t0;v2=0.0003;ft2=v2*skew(t-y2_m/v_phase,t0+t2,sigma_t/1.,2)
-    t3=5508-t0;v3=-0.00025;ft3=v3*skew(t-y2_m/v_phase,t0+t3,sigma_t/1.,2)
-    t4=6040-t0;v4=-0.0005;ft4=v4*skew(t-y2_m/v_phase,t0+t4,sigma_t/1.,2)
-    t5=7550-t0;v5=0.00025;ft5=v5*skew(t-y2_m/v_phase,t0+t5,sigma_t/1.,2)
-    v_sism=ft0+0*1.*(ft1+ft2+ft3+ft4+ft5)
-    v_sism=v_sism/10.
-    sigma_x=4.*dx_m*1.e-03;x_o=x2.mean()
-    f_lon=skew(x2,x_o,sigma_x/1.,0)
-
-    wy0=(f_lon-f_lon[0,0])*v_sism*(1-0.*cos(omega_o*t))
-#    wy0=1.e-03*sin(omega_0*t)*f_lon#
-#    wy0=v_sism[it]*f_lon[:,:]#*cos(omega_0*t)
-#    wy0=wy0-wy0[0,0]
+    wy0=wy0_t*(f_lon-f_lon[0,0])
     return wy0
 
 
@@ -520,14 +679,14 @@ global fac_amp,mask
 global wk_x,wk_y
 
 #%%
-dy=10;dx=dy;dt=dy;                                                            #A resoluções espaciais no kilometros
+dy=10;dx=1.*dy;dt=dy/2.;                                                            #A resoluções espaciais no kilometros
 y=arange(0,400+dy,dy);ny=len(y)                                           #A faixa de altitude
-x=arange(-1400,1400+dx,dx);nx=len(x)                                        #A faixa de longitude
+x=arange(-200,200+dx,dx);nx=len(x)                                        #A faixa de longitude
 [y2,x2]=meshgrid(y,x)
 y2_m=y2*1.e+03;x2_m=x2*1.e+03
 dy_m=dy*1.e+03;dx_m=dx*1.e+03                                                 #As resoluções espaciais no metros
 
-it=0;nt=900;t=0;t_f=nt*dt
+it=0;nt=1.5*360;t=0;t_f=nt*dt
 vnx=dx_m/dt;vny=dy_m/dt #VELOCIDADE NUMERICIAS
 
 #%%
@@ -535,13 +694,20 @@ wx_m=zeros((nx,ny));wy_m=zeros((nx,ny));
 wx_o=0*wx_m;wy_o=0*wy_m;
 time=[]
 dtn3=[];wx3=[];wy3=[];wy3_ray=[];n3=[];vw3=[];data_arrival=[]
-wave_all=[];data_amb=[]
+wave_all=[];data_amb=[];eta=[];pr3=[];rho3=[];tn3=[];
+o_br=[];omega_all=[];gr_ci3=[]
 
 #%%============================================================================
 
 f=ambiente_atmos(0,x2,y2)
-f=ambiente_iono(x2,y2)
-f=fonte(1.)
+#f=ambiente_iono(x2,y2)
+f=amb_iono(0,x2,y2)     
+f=fonte(1.*y2)
+g_e=(1./tn_amb)*gradient(tn_amb)[1]/gradient(y2)[1];
+ln_tn=log(tn_amb[0,0])+1.33*cumsum(dy*g_e,1)
+tn_new=exp(ln_tn)
+#tn_amb=tn_new
+#tn_amb=tn_amb.mean()+0*tn_amb
 data_amb.append((rho_amb[0,:],sn[0,:]))
 
 #%%============================INTIALIZATION===================================
@@ -549,6 +715,7 @@ data_amb.append((rho_amb[0,:],sn[0,:]))
 
 pn_amb=r_g*rho_amb*tn_amb
 rho_o=rho_amb;tn_o=tn_amb;pn_o=pn_amb
+rho_to=0*rho_o;rho_ho=rho_amb
 
 fac_amp=sqrt(data_antes(2,1,rho_amb)/data_proximo(2,1,rho_amb))#
 #fac_amp=sqrt(abs(rho_amb/rho_amb.max()))
@@ -560,71 +727,89 @@ mask=mask_b()
 i_pl=1
 pdf_frente=zeros((nx,ny))
 pdf_tras=zeros((nx,ny))
-while t <=t_f:
+a_frente=1.+zeros((nx,ny))
+a_tras=1.+zeros((nx,ny))
+a_frente[x<0]=0
+a_tras[x>=0]=0
+lambda_y0=arange(2.*dy_m,ny*dy_m/3.,dy_m)
+lambda_x0=arange(4.*dx_m,nx*dx_m/2.,2*dx_m)
+while t <=t_f/1.:
     wy_ray=zeros((nx,ny))
-    wy_ana=zeros((nx,ny));
-    for ik in range (15):
+    wy_ana=zeros((nx,ny));wx_ana=zeros((nx,ny));
+    for ik in range (len(lambda_y0)):
         lambda_x=10.*dx_m;
-        if ik==0:
-            lambda_y=(2.+2*ik)*dy_m
-        else:
-            lambda_y=(4*ik)*dy_m
-        for ikx in range (ik,15):
-            lambda_x=max(sigma_x,4*ikx*dx_m)
-#        if lambda_y>lambda_x:
-#            print ('Longest wavelength='+str(lambda_y/1.e+03))
-#            break
+        lambda_y=lambda_y0[ik]
+        lambda_x0=arange(lambda_y,nx*dx_m/2.,2*dx_m)
+        for ikx in range (len(lambda_x0)):
+            lambda_x=lambda_x0[ikx]#max(sigma_x,2*ikx*dx_m)
             wk_x=2.*pi/lambda_x;wk_y=2.*pi/lambda_y    
             
             f=AGW_ana()
             mu=f[0];omega_mais=f[1];omega_menos=f[2];nu_col=f[3];
             wx_mais=f[4];wx_menos=f[5]
-            omega_br=sqrt(f[6]);omega_ac=sqrt(f[7])
+            omega_br=sqrt(f[6]);omega_ac=sqrt(f[7]);
+            omega_ci=sqrt(abs(f[8]))
+            gamma_ad=f[9];gamma_e=f[10]
+            c_s=f[11]
+            
             f=AGW_ana_x()
-            omega_mais_x=f[0];omega_menos_x=f[1]
+            omega_awx=f[0];omega_gwx=f[1]
+            
+            if ik==0 and ikx==ik and omega_ci.any()!=0:
+                print ('CONVECTIVELY UNSTABLE GWs')                
+
             w_amp=1
-            if omega_mais.max() > 1./dt :
+            if omega_mais.max()/(2.*pi) > 1./(2.*dt) or omega_awx.max()/(2.*pi) > 1./(2.*dt):
                 w_amp=0
             
             wy_alt=exp(-mu)
             n=1.
-            wy_damp=exp(2*nu_col*t/(2.*n))
-            
+            wy_damp=exp(2.*nu_col*t/(2.*n))*exp(-lambda_c*t*wk_y**2.)
+            wy_growth=exp(0*omega_ci*t/(2.*pi))
             #%%ONDAS ACUSTICAS
-            omega_aw=(1./n)*sqrt(1.-(n-1)**2./(4.*omega_mais*t_f)**2.)*omega_mais
+            omega_aw=(1./n)*sqrt(1.-(n-1)**2./(4.*omega_mais.max()*t_f)**2.)*omega_mais
             #ONDAS ACUSTICAS
-            omega_gw=(1./n)*sqrt(1.-(n-1)**2./(4.*omega_menos*t_f)**2.)*omega_menos
-            for i_wv in range (2):
+            omega_gw=(1./n)*sqrt(1.-(n-1)**2./(4.*omega_menos.max()*t_f)**2.)*omega_menos
+#            omega_gw=omega_menos
+#            if omega_aw.any() < omega_ac.any():
+#                continue
+            for i_wv in range (1):
                 if i_wv==0: 
                     omega=omega_aw
-                    wx_amp=wx_mais/10.
+                    wx_amp=wx_mais/100.
+                    omega_x=omega_awx
                 if i_wv==1: 
                     omega=omega_gw
-                    wx_amp=wx_menos/10.
-                    
-                v_phase=omega/wk_y;v_phase_x=omega/wk_x
+                    wx_amp=wx_menos/100.
+                    omega_x=omega_gwx
+                
+                x2_mv=x2_m+v_s*t*1.e+03
+                v_phase=omega/wk_y;
                 wy0=fonte(v_phase);
-                ondas_frente=cos(-omega*t+wk_y*y2_m+wk_x*x2_m)
-                ondas_tras=cos(omega*t+wk_y*y2_m+wk_x*x2_m)
-                wy_frente=wy0*ondas_frente*wy_alt*wy_damp
-                wy_tras=wy0*ondas_tras*wy_alt*wy_damp
-                wy_ondas=w_amp*(wy_frente+wy_tras)
+                ondas_frente=cos(-omega*t+wk_y*y2_m+0*wk_x*x2_m)
+                ondas_tras=cos(omega*t+wk_y*y2_m+0*wk_x*x2_m)
+                wy_frente=wy0*ondas_frente*wy_alt*wy_damp*wy_growth
+                wy_tras=wy0*ondas_tras*wy_alt*wy_damp*wy_growth
+                wy_ondas=w_amp*(wy_frente+wy_tras)/2.
                 
-                phase_frente=wk_x*(x2_m-v_phase_x*t)
-                phase_tras=wk_x*(x2_m+v_phase_x*t)
-                ondas_frente=cos(phase_frente)
-                ondas_tras=cos(phase_tras)
-                    
-                pdf_frente=pdf_frente+pdf(phase_frente/(2.*pi))
-                pdf_tras=pdf_tras+pdf(phase_tras/(2.*pi))
-                    
-                prop_x=(ondas_frente*pdf_frente
-                            +ondas_tras*pdf_tras)/(2*15*15*len(arange(0,t+dt,dt)))
+                v_phase_x=omega_x/wk_x
+                if abs(v_phase_x).min() !=0:
+                    t_phase=x2_m/v_phase_x
+                else:
+                    t_phase=0
+                sigma_tx=2.*pi/omega_x;sigma_x2=2.*pi/wk_x
                 
-                wy_x=wy_ondas.max(0)*prop_x
-                wy_ana=wy_ana+wy_ondas+wy_x
+                ondas_frente=cos(-omega_x*t+wk_x*x2_mv)
+                ondas_tras=cos(omega_x*t+wk_x*x2_mv)
+                wy0_x=(wy_ondas.max(0)+wy_ondas)/2.
+                wy_frente=wy0_x*ondas_frente#*skew(0*(t-t_phase),0,sigma_tx,0)
+                wy_tras=wy0_x*ondas_tras#*skew(0*(t+t_phase),0,sigma_tx,0)
+                wx_ondas=(a_frente*wy_frente+a_tras*wy_tras)*skew(x2_mv,0,sigma_x2,0)
+                
+                f_smooth=1.-0.9*skew(4.*x2_mv,0,sigma_x2,0)
+                wy_ana=wy_ana+(wy_ondas+wx_ondas)*f_smooth
                 wy_ana[:,0]=wy0[:,0]
-                wx_ana=wx_amp*gradient(wy_ana)[0]
+                wx_ana=wx_ana+wx_amp*gradient(wy_ana)[0]
             
             #%%RAY TRACING
             omega_ray=wk_y*sn#omega_menos
@@ -637,39 +822,48 @@ while t <=t_f:
             wy_ray=wy_ray+wy_tras+wy_x
             wy_ray[:,0]=wy0[:,0]
         
-        if it==0:
-            wave_all.append([omega_aw[0,:],omega_gw[0,:],omega_ray[0,:],wk_x,wk_y])
+            if it==0:
+                wave_all.append([omega_aw[0,:],omega_gw[0,:],omega_ray[0,:],\
+                                 wk_x,wk_y,omega_br,omega_ac,c_s[0,:]])
         
 #    print (omega_menos.max(),omega_mais.max())
     #%%
-    f=rho_tn(rho_o,tn_o)
-    rho=f[0];tn=f[1]
+    f=rho_tn(rho_o,tn_o,pn_o)
+    rho=f[0];tn=f[1];pn=f[2]
+#    pn=r_g*rho*tn
+    gma=rho_amb/rho
+    print (gma.max())
     
 #%%SIMULACAO NAO-LINEAR 
 #    wy_o[:,0]=wy0[:,0]
 #    f=AGW()
 #    wx=f[0];wy=f[1];rho=f[2];tn=f[3];pn=f[4]
 #
-    f=vel(b_o,nu_in,gyro_i,wx_ana[:,15:],wy_ana[:,15:])
+    f=vel(b_o,nu_in,gyro_i,wx_ana[:,8:],wy_ana[:,8:])
     vx=f[0];vy=f[1]
     
     n=den_iono(n_o,vx,vy,vnx,vny)
        
 #%%===========================ATUALIZAÇÃO EM TEMPO===================#
-    dtn=100*(tn-tn_o)/tn_amb;
+    dtn=rho_amb/rho#gradient(tn)[1]/gradient(y2)[1]#100*(tn-tn_o)/tn_amb;
     drho=100*(rho-rho_o)/rho_amb
     dn=abs(n-n_o)/n_o
 #    wx_m=wx_o;wx_o=wx 
 #    wy_m=wy_o;wy_o=wy
-    rho_o=rho;tn_o=tn;#pn_o=pn
+    rho_o=rho;tn_o=tn;pn_o=pn
     n_o=n
     
     time.append(t/60.)
 #    data_arrival.append([t_arrival/60.,y_arrival])
-    dtn3.append(dtn);
+    rho3.append(rho);tn3.append(tn)
+    pr3.append(pn);
     wx3.append(wx_ana)
     wy3.append(wy_ana)
     wy3_ray.append(wy_ray)
+    gr_ci3.append(omega_ci)
+    i_xo=abs(x-x.mean()).argmin()
+    omega_all.append([omega_ac[i_xo,:],omega_br[i_xo,:],omega_ci[i_xo,:],\
+                      gamma_ad[i_xo,:],gamma_e[i_xo,:]])
     n3.append(n)
 #    vw3.append(vy[i_xo,:]/wy0.max())
 
@@ -693,34 +887,27 @@ while t <=t_f:
 
 save('time.npy',array(time))
 save('data_amb.npy',array(data_amb))
-save('wx3.npy',array(wx3))
 save('wy3.npy',array(wy3))
-save('wy3_ray.npy',array(wy3_ray))
 save('wave_all.npy',array(wave_all))
 save('n3.npy',array(n3))
-    
+
+#%%
 i_xo=abs(x-x.mean()).argmin()
 t=array(time);
+n3=array(n3);n3=gradient(n3)[0]
 wy3=array(wy3)
 wx3=array(wx3)
 wy3_ray=array(wy3_ray)
+eta=array(o_br)
 wave_all=array(wave_all)
 
 #%% ESTIMAÇAO DO ARRIVAL TIME 
-
 t_arrival=t[(abs(wy3[:,i_xo,:])>abs(wy3[:,i_xo,0]).max()).argmax(axis=0)]
 y_arrival=y
-
-t_ray_arrival=t[(abs(wy3_ray[:,i_xo,:])>abs(wy3_ray[:,i_xo,0]).max()).argmax(axis=0)]
-#t_ray_arrival=(1./60.)*y*1.e+03/sn[i_xo,:]
-y_ray_arrival=y
 t_arrival_0=t_arrival[abs(y_arrival-5).argmin()+1]#.min()
-t_ray_arrival_0=t_ray_arrival[abs(y_arrival-5).argmin()]
 tau_arrival=cumsum(t_arrival)-t_arrival_0;
-tau_ray_arrival=cumsum(t_ray_arrival)-t_ray_arrival_0;
 
 #%%
-
 fig=figure(figsize=(12,12),facecolor='w',edgecolor='k') 
 subplot(121)
 semilogx(rho_amb[0,:],y2[0,:],'r')
@@ -728,15 +915,14 @@ xlabel('Densidade, $kg m^{-3}$');ylabel('Altitude, km')
 subplot(122)
 plot(sn[0,:],y2[0,:],'b')
 xlabel('Acoustic speed, m/s');ylabel('Altitude, km')
-draw()
-
 
 #%%
 fig=figure(figsize=(12,12),facecolor='w',edgecolor='k')
 ax=subplot(111)
 ext=[0,t[-1],x2[0,0],x2[-1,0]]
 data=wy3[:,:,0]
-vm=1.e-03#data.max()/10.
+vm=1.e-02#data.max()/10.
+plot(t,1.e+03*data[:,i_xo])
 im=imshow(data.T,origin='lower',extent=ext,cmap=cm.seismic,vmin=-vm,vmax=vm)
 im.set_interpolation('bilinear')
 axis('tight');
@@ -745,160 +931,48 @@ xlabel('Time, minutos');ylabel('Longitude/Latitude, km')
 divider = make_axes_locatable(ax);
 cax = divider.append_axes("right", size="2%", pad=0.05)
 cbar=colorbar(im,cax=cax);gca().set_title('m/s') 
-draw()
 
 #%%
-for ik in range (1,len(wave_all[:,0])-1,2):
-    wl=int(1.e-03*2*pi/wave_all[ik,4])
-    omega_aw=wave_all[ik,0];omega_gw=wave_all[ik,1];
-    wk_x=wave_all[ik,3];wk_y=wave_all[ik,4]
-    
-    #%%
-    v_aw_phase=omega_aw/wk_y;v_gw_phase=omega_gw/wk_y
-    v_ray=sn[i_xo,:]
-    
-    dtau_aw=0.5*(1./data_antes(1,1,v_aw_phase)+1./data_proximo(1,1,v_aw_phase))*dy_m
-    tau_aw_phase=cumsum(dtau_aw)
-    dtau_gw=0.5*(1./data_antes(1,1,v_gw_phase)+1./data_proximo(1,1,v_gw_phase))*dy_m
-    tau_gw_phase=cumsum(dtau_gw)
-    dtau_ray=0.5*(1./data_antes(1,1,v_ray)+1./data_proximo(1,1,v_ray))*dy_m
-    tau_ray=cumsum(dtau_ray)
-    #%%
-    v_aw_group=(wave_all[ik+1,0]-wave_all[ik,0])/(wave_all[ik+1,4]-wave_all[ik,4])
-    v_gw_group=(wave_all[ik+1,1]-wave_all[ik,1])/(wave_all[ik+1,4]-wave_all[ik,4])
-    dtau_aw=0.5*(1./data_antes(1,1,v_aw_group)+1./data_proximo(1,1,v_aw_group))*dy_m
-    tau_aw_group=cumsum(dtau_aw)
-    dtau_gw=0.5*(1./data_antes(1,1,v_gw_group)+1./data_proximo(1,1,v_gw_group))*dy_m
-    tau_gw_group=cumsum(dtau_gw)
-
-    #%%
-    fig=figure(3,figsize=(12,12),facecolor='w',edgecolor='k')
-    subplot(111)
-    a=1.e+03/(2.*pi)
-    semilogx(a*omega_aw,y,'r',lw=5*wl/y[-1],label=str(wl)+'km')
-    semilogx(a*omega_gw,y,'b',lw=5*wl/y[-1])
-    semilogx(a*omega_br[i_xo,:],y,'g')
-    semilogx(a*omega_ac[i_xo,:],y,'c')
-    axis('tight')
-    legend()
-    xlabel('Frequency, mHz');ylabel('Altitude, km');title(r'$\omega$')
-    fig=figure(4,figsize=(12,12),facecolor='w',edgecolor='k')
-    subplot(121)
-    plot(v_aw_phase,y,'r',lw=5*wl/y[-1],label=str(wl)+'km')
-    plot(v_gw_phase,y,'b',lw=5*wl/y[-1])
-    plot(v_ray,y,'g',lw=3)
-    axis('tight')
-    legend()
-#    axis((0,1500,0,400))
-    xlabel('Velocity, m/s');ylabel('Altitude, km');title(r'(A) $\omega/k$')
-    ax=subplot(122)
-    semilogx(tau_aw_phase/60.,y,'r',lw=5*wl/y[-1])
-    semilogx(tau_gw_phase/60.,y,'b',lw=5*wl/y[-1])
-    semilogx(tau_ray/60.,y,'g',lw=3)
-    axis('tight')
-    xlabel('Travel time, Minutes');ylabel('Altitude, km');title(r'(B) $\tau_{ph}$ ')
-    ax.yaxis.set_label_position("right")
-    ax.yaxis.tick_right()
-
-    fig=figure(5,figsize=(12,12),facecolor='w',edgecolor='k')
-    subplot(121)
-    plot(v_aw_group,y,'r',lw=5*wl/y[-1],label=r'$\lambda_z$= '+str(wl)+' km')
-    plot(v_gw_group,y,'b',lw=5*wl/y[-1])
-    plot(v_ray,y,'g',lw=3)
-    axis('tight')
-    xlabel('Velocity, m/s');ylabel('Altitude, km');title(r'(A) $d \omega/dk$')
-    legend()
-    ax=subplot(122)
-    semilogx(tau_aw_group/60.,y,'r',lw=10*wl/y[-1])
-    semilogx(tau_gw_group/60.,y,'b',lw=10*wl/y[-1])
-    semilogx(tau_ray/60.,y,'g',lw=3)
-    axis('tight')
-    xlabel('Travel time, Minutes');ylabel('Altitude, km');title(r'(B) $\tau_{gp}$')
-    ax.yaxis.set_label_position("right")
-    ax.yaxis.tick_right()
-#%%
-vm=10#1.e-03*wy_alt.max()/2.
-
-#%%
-fig=figure(figsize=(12,12),facecolor='w',edgecolor='k')
-ax=subplot(121)
-ext=[0,t[-1],y2[0,0],y2[0,-1]]
-plot(t_arrival,y_arrival,'ko')
-data=wy3[:,i_xo,:]
-plot(t,1.e+04*data[:,0],'k-')
-im=imshow(data.T,origin='lower',extent=ext,cmap=cm.seismic,vmin=-vm,vmax=vm)
-im.set_interpolation('bilinear')
-axis('tight');axis((0,t[-1],-10,400))
-title('(A) Vertical propagation of AGWs')
-xlabel('Time, minutos');ylabel('Altitude, km')
-divider = make_axes_locatable(ax);
-cax = divider.append_axes("right", size="2%", pad=0.05)
-cbar=colorbar(im,cax=cax);gca().set_title('m/s') 
-#%%
-ax=subplot(122)
-plot(t_arrival-t_arrival_0,y_arrival,'ro')
-xlabel('Arrival Time, Minutes')
-ylabel('Arrival Altitude, km')
-title('(B) Arrival diagram')
-plot(t-t_arrival_0,1.e+04*data[:,0],'k-')
-grid('on')
-axis((-5,10,-10,400))
-ax.yaxis.set_label_position("right")
-ax.yaxis.tick_right()
-draw()
-
+vm=250
 #%%
 fig=figure(figsize=(12,12),facecolor='w',edgecolor='k')
 ax=subplot(111)
 ext=[0,t[-1],y2[0,0],y2[0,-1]]
-#        plot(t_arrival/60.,y_arrival,'ko')
-data=wx3[:,i_xo,:]
-plot(t,-1.e+04*data[:,0],'k-')
+data=wy3[:,i_xo,:]
 im=imshow(data.T,origin='lower',extent=ext,cmap=cm.seismic,vmin=-vm,vmax=vm)
 im.set_interpolation('bilinear')
-axis('tight');axis((0,25,-10,400))
-title('(A) Vertical propagation of AGWs')
-xlabel('Time, minutos');ylabel('Altitude, km')
+axis('tight');axis((0,t[-1],0,400))
+title('CTDs, Vertical propagation of Pressure Disturbance')
+xlabel('Time, minutes');ylabel('Altitude, km')
 divider = make_axes_locatable(ax);
 cax = divider.append_axes("right", size="2%", pad=0.05)
-cbar=colorbar(im,cax=cax);gca().set_title('m/s') 
+cbar=colorbar(im,cax=cax);gca().set_title('Pa') 
 
 #%%
 fig=figure(figsize=(12,12),facecolor='w',edgecolor='k')
 ax=subplot(211)
 ext=[t[0]-0*t_arrival_0,t[-1]-0*t_arrival_0,x2[0,0],x2[-1,0]]
-data=wy3[:,:,abs(y-150.).argmin():abs(y-250.).argmin()].mean(2)
-im=imshow(data.T,origin='lower',extent=ext,cmap=cm.seismic,vmin=-vm,vmax=vm)
+ax=subplot(111)
+ext=[t[0],t[-1],x2[0,0],x2[-1,0]]
+data=n3[:,:,abs(y-180.).argmin():abs(y-200.).argmin()].mean(2)
+im=imshow(data.T,origin='lower',extent=ext,cmap=cm.seismic)#,vmin=-vm,vmax=vm)
 im.set_interpolation('bilinear')
 axis('tight');
 axis((t[0],t[-1],x[0],x[-1]));
-plot(t-0*t_arrival_0,1*data[:,i_xo],'g')
-title('Horizontal propagation of AGWs')
+#plot(t,1*data[:,i_xo],'g')
+title('Pressure Disturbance, Horizontal cross section')
 xlabel('Time, minutos');ylabel('Epicentral Distance, km')
 divider = make_axes_locatable(ax);
 cax = divider.append_axes("right", size="2%", pad=0.05)
-cbar=colorbar(im,cax=cax);gca().set_title('m/s') 
-ax=subplot(212)
-ext=[t[0]-t_arrival_0,t[-1]-t_arrival_0,x2[0,0],x2[-1,0]]
-data=wx3[:,:,abs(y-150.).argmin():abs(y-250.).argmin()].mean(2)
-im=imshow(data.T,origin='lower',extent=ext,cmap=cm.seismic,vmin=-vm,vmax=vm)
-im.set_interpolation('bilinear')
-axis('tight');
-axis((t[0],t[-1],x[0],x[-1]));
-plot(t-0*t_arrival_0,1*data[:,i_xo],'g')
-title('Horizontal propagation of AGWs')
-xlabel('Time, minutos');ylabel('Epicentral Distance, km')
-divider = make_axes_locatable(ax);
-cax = divider.append_axes("right", size="2%", pad=0.05)
-cbar=colorbar(im,cax=cax);gca().set_title('m/s') 
+cbar=colorbar(im,cax=cax);gca().set_title('Pa') 
 
 #%%
 fig=figure(figsize=(12,12),facecolor='w',edgecolor='k')
-for i_pl in range (1,4):
-    it=abs(t-(t_arrival_0+2*i_pl)).argmin()
-    ax=subplot(1,3,i_pl)
+for i_pl in range (1,6):
+    it=abs(t-(8+16*i_pl)).argmin()
+    ax=subplot(1,5,i_pl)
     ext=[x2[0,0],x2[-1,0],y2[0,0],y2[0,-1]]
-    data=array(wy3)[it,:,:]
+    data=wy3[it,:,:]
     im=imshow(data.T,origin='lower',extent=ext,
               cmap=cm.seismic,vmin=-vm,vmax=vm)
     im.set_interpolation('bilinear')
@@ -911,104 +985,8 @@ for i_pl in range (1,4):
     if i_pl==5:
         divider = make_axes_locatable(ax);
         cax = divider.append_axes("right", size="5%", pad=0.05)
-        cbar=colorbar(im,cax=cax);gca().set_ylabel('m/s') 
+        cbar=colorbar(im,cax=cax);gca().set_ylabel('Pa') 
     i_pl=i_pl+1
 draw()
-##%%
-#
-#fig=figure(5,figsize=(12,12),facecolor='w',edgecolor='k')
-#wy_t=array(wy3)[:,i_xo,:]
-#subplot(111)
-#for iz in range (40,60,4):
-#    plot(t-t_arrival_0,wy_t[:,iz])
-#grid('on')
-#xlabel('Time, minutos');
-#ylabel('m/s')
-
-#%%
-fig=figure(figsize=(12,12),facecolor='w',edgecolor='k')
-ax=subplot(121)
-ext=[0,t[-1],y2[0,0],y2[0,-1]]
-plot(t_ray_arrival,y_ray_arrival,'ko')
-data=wy3_ray[:,i_xo,:]
-plot(t,1.e+04*data[:,0],'k-')
-im=imshow(data.T,origin='lower',extent=ext,cmap=cm.seismic,vmin=-vm,vmax=vm)
-im.set_interpolation('bilinear')
-axis('tight');axis((0,25,-10,400))
-title('(A) Vertical propagation of AGWs')
-xlabel('Time, minutos');ylabel('Altitude, km')
-divider = make_axes_locatable(ax);
-cax = divider.append_axes("right", size="2%", pad=0.05)
-cbar=colorbar(im,cax=cax);gca().set_title('m/s') 
-#%%
-ax=subplot(122)
-#if t_arrival > 0:
-plot(t_arrival-t_arrival_0,y_arrival,'o')
-plot(t_ray_arrival-t_ray_arrival_0,y_ray_arrival,'o')
-xlabel('Arrival Time, Minutes')
-ylabel('Arrival Altitude, km')
-title('(B) Arrival diagram')
-plot(t-t_arrival_0,1.e+04*data[:,0],'k-')
-grid('on')
-axis((-5,10,-10,400))
-ax.yaxis.set_label_position("right")
-ax.yaxis.tick_right()
-draw()
-
 
 show()
-
-
-#save('time.npy',array(time))
-#save('lon.npy',x)
-#save('dtn.npy',array(dtn3))
-#save('wx.npy',array(wx3))
-#save('wy.npy',array(wy3))
-#save('n2.npy',array(n3))
-#save('vw1.npy',array(vw3))
-
-#%%
-#wy_antes=0*wy_o
-#i_arrival=0;
-#t_arrival=0;y_arrival=0;i_xo=abs(x-x.mean()).argmin()
-#    for iy in range (ny):
-#        if wy_antes[i_xo,iy] < wy0[i_xo,iy] and \
-#                wy_ana[i_xo,iy] > wy0[i_xo,iy] and i_arrival==0 :
-#            t_arrival=t#max(tau_arrival,t)
-#            y_arrival=y[iy]#max(y_arrival,y[iy])
-#            #if y_arrival==y[0]:
-#                #t_arrival_0=t_arrival
-#            if y_arrival==y[-1]:
-#                i_arrival=1        
-#    
-#    wy_antes=wy_ana
-          #%%ONDAS GRAVIDADE
-#            omega_gw=(1./n)*sqrt(1.-(n-1)**2./(4.*omega_menos*t_f)**2.)*omega_menos
-#            v_phase=omega_gw/wk_y;v_phase_x=omega_gw/wk_x
-#            wy0=fonte(v_phase);
-#            ondas_frente=cos(-omega_gw*t+wk_y*y2_m+wk_x*x2_m)
-#            ondas_tras=cos(omega_gw*t+wk_y*y2_m+wk_x*x2_m)
-#            wy_frente=wy0*ondas_frente*wy_alt*wy_damp
-#            wy_tras=wy0*ondas_tras*wy_alt*wy_damp
-#            wy_ondas=w_amp*(wy_frente+wy_tras)
-#            
-#                
-#            phase_frente=wk_x*(x2_m-v_phase_x*t)
-#            phase_tras=wk_x*(x2_m+v_phase_x*t)
-#            ondas_frente=cos(phase_frente)
-#            ondas_tras=cos(phase_tras)
-#    
-#            pdf_menos_frente=pdf_menos_frente+pdf(phase_frente/(2.*pi))
-#            pdf_menos_tras=pdf_menos_tras+pdf(phase_tras/(2.*pi))
-#    
-#            prop_x=(ondas_frente*pdf_menos_frente
-#                        +ondas_tras*pdf_menos_tras)/(31*31*len(arange(0,t+dt,dt)))
-#            
-#            wy_x=wy_ondas.max(0)*prop_x
-#            wy_menos=wy_menos+wy_ondas+wy_x
-#            wy_menos[:,0]=wy0[:,0]
-#    wx_mais=wx_mais*gradient(wy_mais)[0]
-#    wx_menos=wx_menos*gradient(wy_menos)[0]
-#    
-#    wy_ana=wy_mais+wy_menos
-#    wx_ana=wx_mais+wx_menos
