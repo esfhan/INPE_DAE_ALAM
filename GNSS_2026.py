@@ -67,6 +67,7 @@ def gal_utctoweekseconds(utc,leapseconds):
 #%%
 def sat_ephimeries():
     fn='ELKO00USA_R_20182100000_01D_MN.rnx'
+    #fn='salu3451.21n'
     info = gr.rinexinfo(fn)
     print ('NAVIGATION RINEX',info)
     nav_data=gr.load(fn)
@@ -80,14 +81,18 @@ def sat_ephimeries():
     ]
     
     eph_all=[]
+    
     for i, sv_id in enumerate(satellites):
         sv_data= nav_data.sel(sv=sv_id).dropna(how='all', dim='time')
         param_nav = {param: sv_data[param].values[0] for param in eph_name}
+        a=np.array([param_nav[param] for param in eph_name])
+        if ~np.isnan(np.sum(a)) ==0:continue
         eph_all.append([param_nav[param] for param in eph_name])
-    return satellites,eph_name,eph_all
+    return satellites[0:len(eph_all)],eph_name,eph_all
 
 #%%
 def kepler_orbit_all(ti,tf,dt,nt):
+    t=np.linspace(ti,tf+dt,nt)
     
     satellites,eph_name,eph_all=sat_ephimeries()
     
@@ -110,11 +115,9 @@ def kepler_orbit_all(ti,tf,dt,nt):
     cic = eph_all[:,eph_name.index('Cic')]
     cis = eph_all[:,eph_name.index('Cis')]
     
-    print (len(t_oe),len(eph_all))
-    x=zeros((109,nt));y=zeros((109,nt));z=zeros((109,nt))
-    
-    t=linspace(ti,tf+dt,nt)
-    
+    ns=len(t_oe)
+    x=zeros((ns,nt));y=zeros((ns,nt));z=zeros((ns,nt))
+        
     mu_ea=3.986005e+14 #m³/s²
     Omega_dot_ea=7.2921151467e-05 #rad/s
     for i_t in range(nt):
@@ -148,7 +151,9 @@ def kepler_orbit_all(ti,tf,dt,nt):
         x[:, i_t] = x_op * np.cos(angle_long) - y_op * np.cos(angle_inc) * np.sin(angle_long)
         y[:, i_t] = x_op * np.sin(angle_long) + y_op * np.cos(angle_inc) * np.cos(angle_long)
         z[:, i_t] = y_op * np.sin(angle_inc)
-        
+     
+    # figure (11,(12,12))
+    # plot(np.arctan2(y,x),np.arcsin(z/sqrt(x*x+y*y+z*z)),'o')
     return (satellites,x,y,z,t)
       
 #%%
@@ -170,7 +175,7 @@ def ipp_traj(sat_x,sat_y,sat_z,obs_x,obs_y,obs_z,lon_r,lat_r):
     arg_3 = pow(dxdy, 2) + pow(dxdz, 2) - pow(dx, 2) * pow(h, 2)
     arg_4 = pow(dy, 2) + pow(dz, 2) + pow(dx, 2)
 
-    factor = np.sqrt(arg_1 - arg_2 * arg_3)
+    factor = np.sqrt(abs(arg_1 - arg_2 * arg_3))
     
     sub_ion_x = (-1 * (dy * dxdy + 
                        dz * dxdz) - factor) / arg_4
@@ -217,51 +222,78 @@ def ipp_traj(sat_x,sat_y,sat_z,obs_x,obs_y,obs_z,lon_r,lat_r):
 #%%
 def tec_calc (i_so,info,obs,prn,obs_ty):
     if char.find(prn[i_so],'G')==0:
-        if int(info['version'])<3:obs_tys=obs_ty
-        if int(info['version'])==3:obs_tys=obs_ty['G']
         f1 = 1575.42e6;f2 = 1227.60e6;f5=1176.45e+06
         f_1=f1;f_2=f2
-        lf1=obs[obs_tys[abs(char.find(obs_tys,'L1')).argmin()]].values[:,i_so]
-        lf2=obs[obs_tys[abs(char.find(obs_tys,'L2')).argmin()]].values[:,i_so]
+        lf1=obs.data_vars['L1'].values[:,i_so]
+        lf2=obs.data_vars['L2'].values[:,i_so]
     if char.find(prn[i_so],'R')==0:#GLONASS
-        if int(info['version'])<3:obs_tys=obs_ty
-        if int(info['version'])==3:obs_tys=obs_ty['R']
         f4=1600.99e6;f2=1248.06e6 #L1/L2
         f_1=f4;f_2=f2
-        lf1=obs[obs_tys[abs(char.find(obs_tys,'L1')).argmin()]].values[:,i_so]
-        lf2=obs[obs_tys[abs(char.find(obs_tys,'L2')).argmin()]].values[:,i_so]
+        lf1=obs.data_vars['L1'].values[:,i_so]
+        lf2=obs.data_vars['L2'].values[:,i_so]
     if char.find(prn[i_so],'E')==0:#GALILEO
-        if int(info['version'])<3:obs_tys=obs_ty
-        if int(info['version'])==3:obs_tys=obs_ty['E']
         f1=1575.42e6;f5=1176.45e6 #L1/L5
-        f_1=f1;f_2=f5
-        lf1=obs[obs_tys[abs(char.find(obs_tys,'L1')).argmin()]].values[:,i_so]
-        lf2=obs[obs_tys[abs(char.find(obs_tys,'L5')).argmin()]].values[:,i_so]
+        f_1=f5;f_2=f1
+        lf1=obs.data_vars['L1'].values[:,i_so]
+        lf2=obs.data_vars['L5'].values[:,i_so]
     if char.find(prn[i_so],'C')==0:#BEIDOU
-        if int(info['version'])<3:obs_tys=obs_ty
-        if int(info['version'])==3:obs_tys=obs_ty['C']
         f1=1575.42e6;f5=1176.45e6 #L1/L5
         f_1=f1;f_2=f5
-        lf1=obs[obs_tys[abs(char.find(obs_tys,'L1')).argmin()]].values[:,i_so]
-        lf2=obs[obs_tys[abs(char.find(obs_tys,'L5')).argmin()]].values[:,i_so]
+        lf1=obs.data_vars['L1'].values[:,i_so]
+        lf2=obs.data_vars['L5'].values[:,i_so]
     if char.find(prn[i_so],'S')==0:#SBAS
-        if int(info['version'])<3:obs_tys=obs_ty
-        if int(info['version'])==3:obs_tys=obs_ty['S']
         f1=1575.42e6;f5=1176.45e6 #L1/L5
         f_1=f1;f_2=f5
-        lf1=obs[obs_tys[abs(char.find(obs_tys,'L1')).argmin()]].values[:,i_so]
-        lf2=obs[obs_tys[abs(char.find(obs_tys,'L5')).argmin()]].values[:,i_so]
+        lf1=obs.data_vars['L1'].values[:,i_so]
+        lf2=obs.data_vars['L5'].values[:,i_so]
     
     
-    lf1[np.isnan(lf1)!=0] = 0
-    lf2[np.isnan(lf2)!=0] = 0
+    # if char.find(prn[i_so],'G')==0:
+    #     if int(info['version'])<3:obs_tys=obs_ty
+    #     if int(info['version'])==3:obs_tys=obs_ty['G']
+    #     f1 = 1575.42e6;f2 = 1227.60e6;f5=1176.45e+06
+    #     f_1=f1;f_2=f2
+    #     lf1=obs[obs_tys[abs(char.find(obs_tys,'L1')).argmin()]].values[:,i_so]
+    #     lf2=obs[obs_tys[abs(char.find(obs_tys,'L2')).argmin()]].values[:,i_so]
+    # if char.find(prn[i_so],'R')==0:#GLONASS
+    #     if int(info['version'])<3:obs_tys=obs_ty
+    #     if int(info['version'])==3:obs_tys=obs_ty['R']
+    #     f4=1600.99e6;f2=1248.06e6 #L1/L2
+    #     f_1=f4;f_2=f2
+    #     lf1=obs[obs_tys[abs(char.find(obs_tys,'L1')).argmin()]].values[:,i_so]
+    #     lf2=obs[obs_tys[abs(char.find(obs_tys,'L2')).argmin()]].values[:,i_so]
+    # if char.find(prn[i_so],'E')==0:#GALILEO
+    #     if int(info['version'])<3:obs_tys=obs_ty
+    #     if int(info['version'])==3:obs_tys=obs_ty['E']
+    #     f1=1575.42e6;f5=1176.45e6 #L1/L5
+    #     f_1=f1;f_2=f5
+    #     lf1=obs[obs_tys[abs(char.find(obs_tys,'L1')).argmin()]].values[:,i_so]
+    #     lf2=obs[obs_tys[abs(char.find(obs_tys,'L5')).argmin()]].values[:,i_so]
+    # if char.find(prn[i_so],'C')==0:#BEIDOU
+    #     if int(info['version'])<3:obs_tys=obs_ty
+    #     if int(info['version'])==3:obs_tys=obs_ty['C']
+    #     f1=1575.42e6;f5=1176.45e6 #L1/L5
+    #     f_1=f1;f_2=f5
+    #     lf1=obs[obs_tys[abs(char.find(obs_tys,'L1')).argmin()]].values[:,i_so]
+    #     lf2=obs[obs_tys[abs(char.find(obs_tys,'L5')).argmin()]].values[:,i_so]
+    # if char.find(prn[i_so],'S')==0:#SBAS
+    #     if int(info['version'])<3:obs_tys=obs_ty
+    #     if int(info['version'])==3:obs_tys=obs_ty['S']
+    #     f1=1575.42e6;f5=1176.45e6 #L1/L5
+    #     f_1=f1;f_2=f5
+    #     lf1=obs[obs_tys[abs(char.find(obs_tys,'L1')).argmin()]].values[:,i_so]
+    #     lf2=obs[obs_tys[abs(char.find(obs_tys,'L5')).argmin()]].values[:,i_so]
+
+    
+    # lf1[np.isnan(lf1)!=0] = 0
+    # lf2[np.isnan(lf2)!=0] = 0
     
     alpha = 40.3e16  # Constante para el cálculo de TECU
     lambda1 = 3e8 / f_1
     lambda2 = 3e8 / f_2
     const = (f_1**2*f_2**2)/(alpha*(f_1**2 - f_2**2))
     tec =const*(lf1 * lambda1 - lf2*lambda2)
-    tec=tec-tec[0]
+    #tec=tec-tec[0]
     return tec
 
 #%%
@@ -275,7 +307,7 @@ def obs_rinex_to_tec(fnc):
     btime=hdr['TIME OF FIRST OBS'].split()
     #etime=hdr['TIME OF LAST OBS'].split()
     print (sta_name,btime)
-    b_str=btime[0]+'-'+btime[1]+'-'+btime[2]+'T'+'12:00'
+    b_str=btime[0]+'-'+btime[1]+'-'+btime[2]+'T'+'09:00'
     e_str=btime[0]+'-'+btime[1]+'-'+btime[2]+'T'+'16:00'
     
     try:
@@ -283,17 +315,20 @@ def obs_rinex_to_tec(fnc):
     except Exception as e:
         print(f"Error al cargar el archivo RINEX: {e}")
         return None
-
-    #print (obs.data_vars)
+    obs=obs.dropna(how='all',dim='time')
+    #print (obs.data_vars['L1'].values)
     #print (obs.sv.to_index())
+    
     if int(info['version'])<3:
-        obs_ty=hdr.get('# / TYPES OF OBSERV')
+         obs_ty=hdr.get('# / TYPES OF OBSERV')
     if int(info['version'])==3:
-        obs_ty=hdr.get('fields')
-    dto=float(hdr.get('INTERVAL'));n_skip=int(300./dto)
+         obs_ty=hdr.get('fields')
+        
+    dto=float(hdr.get('INTERVAL'));n_skip=int(180/dto)
     prn = obs['sv'].values
     times = obs.time
     
+
     ts = gr.to_datetime(obs.time)
     tis=3600*ts[0].hour+60*ts[0].minute+ts[0].second
     tfs=3600*ts[-1].hour+60*ts[-1].minute+ts[-1].second
@@ -306,15 +341,15 @@ def obs_rinex_to_tec(fnc):
     #tig=gal_utctoweekseconds(utc, 0)[1]print(ts[0].year,ts[0].month,ts[0].day,ts[0].hour,ts[0].minute,ts[0].second)
     
     x_r,y_r,z_r=obs.position
-    lat_r=arctan2(z_r,sqrt(x_r**2.+y_r**2.));lon_r=arctan2(y_r,x_r)
+    lat_r=arctan2(z_r,sqrt(x_r**2.+y_r**2.));lon_r=2*pi+arctan2(y_r,x_r)
     
     lat_rec, lon_rec, h_rec =obs.position_geodetic
     lat_r=radians(lat_rec);lon_r=radians(lon_rec+360)
        
     satellites,x,y,z,t=kepler_orbit_all(ti,tf, n_skip*dto,int(len(times)/n_skip))
     
-    print ('NAVIGATION SATELLITES=',satellites)
-    print ('OBSERVATION SATELLITES=',prn)
+    #print ('NAVIGATION SATELLITES=',satellites)
+    #print ('OBSERVATION SATELLITES=',prn)
     for i_so in range(len(prn)):
         
         i0=np.char.find(satellites,prn[i_so])
@@ -337,22 +372,27 @@ def obs_rinex_to_tec(fnc):
         if len(tec[tec==0])>len(ts)/4.:
             print ('MEASUREMENTS NOT AVAIL')
             continue
+        
         #%%
         lon0=degrees(lon_r);lat0=degrees(lat_r)
         dlon=lon_ipp-lon0;dlat=lat_ipp-lat0
+        dl=sqrt(dlon**2+dlat**2.)
+        
         elmx=30;
-        lon_ip=lon_ipp[abs(el_angle)>elmx]
-        lat_ip=lat_ipp[abs(el_angle)>elmx]
-        t_ip=ts_h[0:-2:n_skip][abs(el_angle)>elmx]
-        tec_ip=tec[0:-1][abs(el_angle)>elmx]
+        lon_ip=lon_ipp[abs(dl)<(90-abs(el_angle))/8]#[logical_and(abs(dl)<elmx/2,abs(el_angle)>elmx)]
+        lat_ip=lat_ipp[abs(dl)<(90-abs(el_angle))/8]#[logical_and(abs(dl)<elmx/2,abs(el_angle)>elmx)]
+        t_ip=linspace(ts_h[0],ts_h[-1],len(el_angle))[abs(dl)<(90-abs(el_angle))/8]#[logical_and(abs(dl)<elmx/2,abs(el_angle)>elmx)]
+        tec_ip=tec[0:-1][abs(dl)<(90-abs(el_angle))/8]#[logical_and(abs(dl)<elmx/2,abs(el_angle)>elmx)]
+        tecn=tec_ip[abs(tec_ip)>0];tn=t_ip[abs(tec_ip)>0]
         
         figure(1,(12,12))
         plot(lon_ip,lat_ip,'o')
         plot(lon0,lat0,'*')  
+        #text(lon_ip[0],lat_ip[0],prn[i_so])
         
         figure(2,(12,12))
-        plot(t_ip,tec_ip,'o')
-        axis((0,24,-200,200))
+        plot(tn,tecn,'o')
+        axis((ts_h[0],ts_h[-1],-200,200))
         draw()
         
     return times, tec, prn, lon_ipp, lat_ipp, lon_r, lat_r, satellites, x, y, z#,el, az
@@ -360,10 +400,11 @@ def obs_rinex_to_tec(fnc):
 
 #%%
 fl =['salu3451.21d']#
-fl=['SALU00BRA_R_20213450000_01D_15S_MO.crx.gz']#
+#fl=['pbjp3541.25d']
+#fl=['SALU00BRA_R_20213450000_01D_15S_MO.crx.gz']#
 
 plot_data = []
-#fl = glob.glob('/home/alam/INPE/GNSS_NOVO/TEC/2019.185/a*.Z')
+#fl = glob.glob('/home/alam/INPE/GNSS_NOVO/TEC/ncedc.2019.185/*.19d.Z')
 #print (fl)
 for fn in fl:
    print (fn)
