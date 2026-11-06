@@ -42,7 +42,7 @@ def A_lb(am,omega,t,t0,Dt):
 import time
 start = time.time()
 
-t=arange(0,10*3600,5*60);nt=len(t)
+t=arange(0,6*3600,5*60);nt=len(t)
 
 lmy=300.e+03  #meters
 wky=2*pi/lmy
@@ -57,7 +57,7 @@ a=imread('color_etopo1_ice_low.jpg')
 
 b=a[:,:,1];
 
-b=zoom(b,3);b=b[::-4,::4];b=zoom(b[:,::5],(1,5))
+b=zoom(b,3);b=b[::-3,::3];b=zoom(b[:,::5],(1,5))
 ny=len(b[:,0])
 nx=len(b[0,:])
 x=linspace(-180,180,nx);dx=x[1]-x[0]		#x-y in degrees
@@ -67,8 +67,8 @@ nroll=int(120./dx)
 b=roll(b,-nroll,axis=1)
 
 xep=143-120;yep=39
-xr=arange(xep-5,xep+65,dx);nx=len(xr)
-yr=arange(yep-60,yep+20,dy);ny=len(yr)
+xr=arange(xep-5,xep+55,dx);nx=len(xr)
+yr=arange(yep-30,yep+20,dy);ny=len(yr)
 
 ix0=abs(x-xr[0]).argmin();ix1=abs(x-xr[-1]).argmin()
 iy0=abs(y-yr[0]).argmin();iy1=abs(y-yr[-1]).argmin()
@@ -85,9 +85,6 @@ dy=int(dy*arc)
 A=zeros((nt,nx,ny))
 w_fonte=zeros((nx,ny))
 
-figure(1,(12,12))
-for ilat in range (0,len(yr),2):
-    plot(xr+120,yr[ilat]+b[iy0+ilat,ix0:ix1+1]/100,'g')
 
 for i0 in range (0,1):
     x0=0+i0*100;y0=-500		#x-y in cartesian
@@ -101,20 +98,23 @@ for i0 in range (0,1):
             ilha0=b[iy0+iy,ix0+ix]#skew(x,x0,4*dx,0)*skew(y,y0,4*dx,0)
             
             sc_h=5.e+03;
-            depth=sc_h*abs(1-ilha0/220)/4.+sc_h
+            depth=sc_h*abs(1-ilha0/220)/2.+sc_h
             amp=sc_h/(depth)
             
             v_ph=sqrt(9.8*depth)
             omega=v_ph*wk        
             A_aw=0
-            for i_fault in range (0,2):
-                ax=2;ay=2
-                r=(1/sqrt(ax**2+ay**2))*sqrt(ay**2*(x-x0-i_fault*6*dx)**2.+ax**2.*(y-y0-i_fault*12*dy)**2)
+            for i_fault in range (0,4):
+                ax=1;ay=2
+                r=(1/sqrt(ax**2+ay**2))*sqrt(ay**2*(x-x0-i_fault*1*dx)**2.+ax**2.*(y-y0-i_fault*4*dy)**2)
                 dr=(1/sqrt(ax**2+ay**2))*sqrt(ay**2*(dx)**2.+ax**2.*(dy)**2)
                 
                 t01=abs(r)*1.e+03/v_ph
-                fault=skew(r,0+6*dr+v_ph*(t-t0-t01)*1.e-03,4*dr,0)
+                fault=skew(r,0+2*dr+v_ph*(t-t0-t01)*1.e-03,dr,0)
                 fault[fault<0.5]=0
+                
+                #d=4*dr
+                #fault=heaviside(r-v_ph*(t-t0-t01)*1.e-03+d/2,0)-heaviside(r-v_ph*(t-t0-t01)*1.e-03-d/2,0)
                 
                 fonte=0*pgv+pgv*fault
                 
@@ -159,7 +159,7 @@ for i0 in range (0,1):
 #%%            
             A_tot=amp*A_aw+A_dw
             
-            A_tot[abs(ilha0)>100]=0
+            A_tot[abs(ilha0)>150]=0
             #A_tot[abs(ilha1)>1/5]=0
             
             A[:,ix,iy]=A[:,ix,iy]+A_tot
@@ -169,7 +169,10 @@ for i0 in range (0,1):
             wy=A;wx=(wkx/wky)*wy
             
             #%%
+
 figure(1,(12,12))
+for ilat in range (0,len(yr),2):
+    plot(xr+120,yr[ilat]+b[iy0+ilat,ix0:ix1+1]/100,'g')
 for it in range (0,nt,5):
     pcolormesh(zoom(xr,2)+120,zoom(yr,2),zoom(A[it,:,:].T,2,mode='nearest'),cmap=cm.seismic,vmax=pgv,vmin=-pgv)
     contour(xr+120,yr,w_fonte[:,:].T,21)
